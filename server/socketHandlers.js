@@ -1,22 +1,33 @@
 import crypto from 'crypto';
+import { loadGame, scanGames } from './gameCatalog.js';
+import { createQuestionTimers } from './questionTimers.js';
 
-export function registerSocketHandlers(io, engine, persist) {
+function emitToPlayer(io, playerId, event, payload) {
+  for (const [, socket] of io.sockets.sockets) {
+    if (socket.data.playerId === playerId) {
+      socket.emit(event, payload);
+      break;
+    }
+  }
+}
+
+export function registerSocketHandlers(io, engine, { gamesDir, persist }) {
   function broadcast() {
     persist();
     io.emit('state', engine.publicView());
     io.to('host').emit('hostState', engine.hostView());
   }
 
+  const timers = createQuestionTimers(engine, broadcast);
+
   io.on('connection', (socket) => {
     const role = socket.handshake.query.role;
     if (role === 'host') socket.join('host');
     if (role === 'display') socket.join('display');
 
-    // Send current snapshot immediately on connect.
     socket.emit('state', engine.publicView());
     if (role === 'host') socket.emit('hostState', engine.hostView());
 
-    // --- Player events ---
     socket.on('player:join', ({ name } = {}) => {
       const id = crypto.randomUUID();
       socket.data.playerId = id;
@@ -34,7 +45,6 @@ export function registerSocketHandlers(io, engine, persist) {
         socket.emit('player:joined', { playerId });
         broadcast();
       } else {
-        // Unknown id (e.g. state was reset) — ask client to re-enter name.
         socket.emit('player:unknown');
       }
     });
@@ -42,7 +52,20 @@ export function registerSocketHandlers(io, engine, persist) {
     socket.on('player:buzz', () => {
       const id = socket.data.playerId;
       if (!id) return;
-      if (engine.buzz(id)) broadcast();
+      if (engine.buzz(id)) {
+        timers.onBuzzed();
+        broadcast();
+      }
+    });
+
+    socket.on('player:pass', () => {
+      const id = socket.data.playerId;
+      if (!id) return;
+      if (!engine.pass(id)) return;
+      if (engine.getState().phase === 'board') {
+        timers.onQuestionEnded();
+      }
+      broadcast();
     });
 
     socket.on('player:bet', ({ amount } = {}) => {
@@ -59,21 +82,73 @@ export function registerSocketHandlers(io, engine, persist) {
       broadcast();
     });
 
-    // --- Host events ---
     const hostOnly = (fn) => (payload) => {
       if (role !== 'host') return;
       fn(payload || {});
       broadcast();
     };
 
-    socket.on('host:select', hostOnly(({ themeIndex, questionIndex }) =>
-      engine.selectQuestion(themeIndex, questionIndex)));
-    socket.on('host:openBuzzer', hostOnly(() => engine.openBuzzer()));
-    socket.on('host:judge', hostOnly(({ correct }) => engine.judge(correct)));
+    socket.on('host:selectGame', hostOnly(({ gameId } = {}) => {
+      timers.onQuestionEnded();
+      try {
+        const content = loadGame(gamesDir, gameId);
+        engine.selectGame(gameId, content);
+        engine.setAvailableGames(scanGames(gamesDir));
+      } catch (err) {
+        console.error('host:selectGame:', err.message);
+      }
+    }));
+
+    socket.on('host:restartGame', hostOnly(() => {
+      timers.onQuestionEnded();
+      engine.restartGame();
+    }));
+
+    socket.on('host:exitToGameSelect', hostOnly(() => {
+      timers.onQuestionEnded();
+      engine.exitToGameSelect();
+    }));
+
+    socket.on('host:removePlayer', hostOnly(({ playerId } = {}) => {
+      if (!playerId) return;
+      if (engine.removePlayer(playerId)) {
+        emitToPlayer(io, playerId, 'player:removed');
+      }
+    }));
+
+    socket.on('host:select', (payload) => {
+      if (role !== 'host') return;
+      const { themeIndex, questionIndex } = payload || {};
+      timers.onQuestionEnded();
+      engine.selectQuestion(themeIndex, questionIndex);
+      if (engine.getState().phase === 'question') {
+        timers.onQuestionSelected();
+      }
+      broadcast();
+    });
+
+    socket.on('host:judge', (payload) => {
+      if (role !== 'host') return;
+      const wasBuzzed = engine.getState().phase === 'buzzed';
+      engine.judge(payload?.correct);
+      if (wasBuzzed && engine.getState().phase === 'question') {
+        timers.onWrongAnswer();
+      } else {
+        timers.onQuestionEnded();
+      }
+      broadcast();
+    });
+
     socket.on('host:adjustScore', hostOnly(({ playerId, delta }) =>
       engine.adjustScore(playerId, delta)));
-    socket.on('host:backToBoard', hostOnly(() => engine.backToBoard()));
-    socket.on('host:nextRound', hostOnly(() => engine.nextRound()));
+    socket.on('host:backToBoard', hostOnly(() => {
+      timers.onQuestionEnded();
+      engine.backToBoard();
+    }));
+    socket.on('host:nextRound', hostOnly(() => {
+      timers.onQuestionEnded();
+      engine.nextRound();
+    }));
     socket.on('host:removeTheme', hostOnly(({ themeIndex }) => engine.removeTheme(themeIndex)));
     socket.on('host:openBets', hostOnly(() => engine.openBets()));
     socket.on('host:revealFinalQuestion', hostOnly(() => engine.revealFinalQuestion()));

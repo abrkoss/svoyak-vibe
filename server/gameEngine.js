@@ -1,29 +1,79 @@
 // Pure game logic for "Своя игра". No sockets, no I/O.
 // createEngine(content) -> engine with action methods + view serializers.
 
+const EMPTY_CONTENT = { title: '', rounds: [] };
+
 function keyOf(roundIndex, themeIndex, questionIndex) {
   return `${roundIndex}:${themeIndex}:${questionIndex}`;
 }
 
-export function createEngine(content, savedState = null) {
+function freshFinal() {
+  return {
+    removedThemes: [],
+    bets: {},
+    answers: {},
+    judged: {},
+    betsOpen: false,
+    revealedQuestion: false,
+    answersOpen: false
+  };
+}
+
+function extractMedia(source) {
+  if (!source?.media) return null;
+  const media = {};
+  if (source.media.image) media.image = source.media.image;
+  if (source.media.audio) media.audio = source.media.audio;
+  if (source.media.video) media.video = source.media.video;
+  return Object.keys(media).length ? media : null;
+}
+
+const DEFAULT_SETTINGS = {
+  buzzerDelaySec: 1,
+  buzzerTimeSec: 30,
+  answerTimeSec: 30
+};
+
+function resolveSettings(content) {
+  const s = content?.settings ?? {};
+  return {
+    buzzerDelaySec: Number(s.buzzerDelaySec) > 0 ? Number(s.buzzerDelaySec) : DEFAULT_SETTINGS.buzzerDelaySec,
+    buzzerTimeSec: Number(s.buzzerTimeSec) > 0 ? Number(s.buzzerTimeSec) : DEFAULT_SETTINGS.buzzerTimeSec,
+    answerTimeSec: Number(s.answerTimeSec) > 0 ? Number(s.answerTimeSec) : DEFAULT_SETTINGS.answerTimeSec
+  };
+}
+
+export function createEngine(initialContent, savedState = null, initialGames = []) {
+  let content = initialContent ?? EMPTY_CONTENT;
+  let rounds = content.rounds ?? [];
+  let availableGames = initialGames;
+
   const state = savedState ?? {
-    phase: 'lobby',
+    phase: 'game_select',
+    selectedGameId: null,
     currentRoundIndex: 0,
     players: [],
-    answered: {}, // { "r:t:q": true }
-    current: null, // { themeIndex, questionIndex, buzzerOpen, buzzedPlayerId, excluded: [] }
-    final: {
-      removedThemes: [],
-      bets: {}, // playerId -> number
-      answers: {}, // playerId -> string
-      judged: {}, // playerId -> boolean
-      betsOpen: false,
-      revealedQuestion: false,
-      answersOpen: false
-    }
+    answered: {},
+    current: null,
+    final: freshFinal()
   };
 
-  const rounds = content.rounds;
+  if (state.selectedGameId == null && state.phase !== 'game_select') {
+    state.phase = 'game_select';
+    state.currentRoundIndex = 0;
+    state.answered = {};
+    state.current = null;
+    state.final = freshFinal();
+  }
+
+  function setContent(newContent) {
+    content = newContent ?? EMPTY_CONTENT;
+    rounds = content.rounds ?? [];
+  }
+
+  function setAvailableGames(games) {
+    availableGames = games;
+  }
 
   function currentRound() {
     return rounds[state.currentRoundIndex];
@@ -40,6 +90,49 @@ export function createEngine(content, savedState = null) {
       if (!state.final.removedThemes.includes(i)) return i;
     }
     return -1;
+  }
+
+  function resetProgress() {
+    state.currentRoundIndex = 0;
+    state.answered = {};
+    state.current = null;
+    state.final = freshFinal();
+    for (const p of state.players) {
+      p.score = 0;
+    }
+    state.phase = state.selectedGameId ? 'lobby' : 'game_select';
+  }
+
+  // --- Game management ---
+  function selectGame(gameId, newContent) {
+    if (state.phase !== 'game_select') return false;
+    if (!gameId || !newContent) return false;
+    state.selectedGameId = gameId;
+    setContent(newContent);
+    resetProgress();
+    state.phase = 'lobby';
+    return true;
+  }
+
+  function restartGame() {
+    if (!state.selectedGameId) return false;
+    resetProgress();
+    return true;
+  }
+
+  function exitToGameSelect() {
+    state.selectedGameId = null;
+    setContent(EMPTY_CONTENT);
+    resetProgress();
+    return true;
+  }
+
+  function removePlayer(playerId) {
+    if (state.phase !== 'lobby') return false;
+    const idx = state.players.findIndex((p) => p.id === playerId);
+    if (idx === -1) return false;
+    state.players.splice(idx, 1);
+    return true;
   }
 
   // --- Player management ---
@@ -65,7 +158,38 @@ export function createEngine(content, savedState = null) {
     if (p) p.score += delta;
   }
 
-  // --- Normal round flow ---
+  function getSettings() {
+    return resolveSettings(content);
+  }
+
+  function freshCurrent(themeIndex, questionIndex) {
+    const settings = getSettings();
+    return {
+      themeIndex,
+      questionIndex,
+      buzzerOpen: false,
+      buzzedPlayerId: null,
+      excluded: [],
+      buzzerOpensAt: Date.now() + settings.buzzerDelaySec * 1000,
+      buzzerDeadline: null,
+      answerDeadline: null,
+      answerTimeExpired: false,
+      passed: []
+    };
+  }
+
+  function getBuzzerTimeSecForQuestion(themeIndex, questionIndex) {
+    const round = currentRound();
+    const q = round?.themes[themeIndex]?.questions[questionIndex];
+    if (q && Number(q.buzzerTimeSec) > 0) return Number(q.buzzerTimeSec);
+    return getSettings().buzzerTimeSec;
+  }
+
+  function getCurrentBuzzerTimeSec() {
+    if (!state.current) return getSettings().buzzerTimeSec;
+    return getBuzzerTimeSecForQuestion(state.current.themeIndex, state.current.questionIndex);
+  }
+
   function selectQuestion(themeIndex, questionIndex) {
     const round = currentRound();
     if (!round || round.type !== 'normal') return;
@@ -73,30 +197,68 @@ export function createEngine(content, savedState = null) {
     const theme = round.themes[themeIndex];
     if (!theme || !theme.questions[questionIndex]) return;
     if (state.answered[keyOf(state.currentRoundIndex, themeIndex, questionIndex)]) return;
-    state.current = {
-      themeIndex,
-      questionIndex,
-      buzzerOpen: false,
-      buzzedPlayerId: null,
-      excluded: []
-    };
+    state.current = freshCurrent(themeIndex, questionIndex);
     state.phase = 'question';
   }
 
   function openBuzzer() {
-    if (state.phase !== 'question' || !state.current) return;
+    if (state.phase !== 'question' || !state.current) return false;
     state.current.buzzerOpen = true;
-    state.current.buzzedPlayerId = null;
+    state.current.buzzerOpensAt = null;
+    const buzzerTimeSec = getCurrentBuzzerTimeSec();
+    state.current.buzzerDeadline = Date.now() + buzzerTimeSec * 1000;
+    return true;
+  }
+
+  function canStillBuzzOrPass() {
+    if (!state.current) return false;
+    return state.players.some((p) =>
+      p.connected &&
+      !state.current.excluded.includes(p.id) &&
+      !state.current.passed.includes(p.id)
+    );
+  }
+
+  function pass(playerId) {
+    if (state.phase !== 'question' || !state.current) return false;
+    if (!state.current.buzzerOpen || state.current.buzzedPlayerId) return false;
+    if (!findPlayer(playerId)) return false;
+    if (state.current.excluded.includes(playerId)) return false;
+    if (state.current.passed.includes(playerId)) return false;
+
+    state.current.passed.push(playerId);
+
+    if (!canStillBuzzOrPass()) {
+      consumeQuestion();
+    }
+    return true;
   }
 
   function buzz(playerId) {
     if (state.phase !== 'question' || !state.current) return false;
     if (!state.current.buzzerOpen || state.current.buzzedPlayerId) return false;
     if (state.current.excluded.includes(playerId)) return false;
+    if (state.current.passed.includes(playerId)) return false;
     if (!findPlayer(playerId)) return false;
     state.current.buzzedPlayerId = playerId;
     state.current.buzzerOpen = false;
+    state.current.buzzerDeadline = null;
+    state.current.answerTimeExpired = false;
+    const settings = getSettings();
+    state.current.answerDeadline = Date.now() + settings.answerTimeSec * 1000;
     state.phase = 'buzzed';
+    return true;
+  }
+
+  function buzzerTimeout() {
+    if (state.phase !== 'question' || !state.current || !state.current.buzzerOpen) return false;
+    consumeQuestion();
+    return true;
+  }
+
+  function answerTimeout() {
+    if (state.phase !== 'buzzed' || !state.current || state.current.answerTimeExpired) return false;
+    state.current.answerTimeExpired = true;
     return true;
   }
 
@@ -118,8 +280,10 @@ export function createEngine(content, savedState = null) {
       adjustScore(playerId, -value);
       state.current.excluded.push(playerId);
       state.current.buzzedPlayerId = null;
-      state.current.buzzerOpen = true;
+      state.current.answerDeadline = null;
+      state.current.answerTimeExpired = false;
       state.phase = 'question';
+      openBuzzer();
     }
   }
 
@@ -133,7 +297,6 @@ export function createEngine(content, savedState = null) {
   }
 
   function backToBoard() {
-    // Host skips / closes current question without awarding points.
     if (state.current) consumeQuestion();
     else if (state.phase !== 'final_remove') state.phase = 'board';
   }
@@ -153,7 +316,7 @@ export function createEngine(content, savedState = null) {
     if (!round || round.type !== 'final') return;
     if (themeIndex < 0 || themeIndex >= round.themes.length) return;
     const remaining = round.themes.length - state.final.removedThemes.length;
-    if (remaining <= 1) return; // keep at least one
+    if (remaining <= 1) return;
     if (!state.final.removedThemes.includes(themeIndex)) {
       state.final.removedThemes.push(themeIndex);
     }
@@ -198,7 +361,7 @@ export function createEngine(content, savedState = null) {
     if (state.phase !== 'final_reveal') return;
     const p = findPlayer(playerId);
     if (!p) return;
-    if (playerId in state.final.judged) return; // already judged once
+    if (playerId in state.final.judged) return;
     const bet = state.final.bets[playerId] ?? 0;
     adjustScore(playerId, correct ? bet : -bet);
     state.final.judged[playerId] = !!correct;
@@ -229,10 +392,17 @@ export function createEngine(content, savedState = null) {
     const meta = {
       themeName: theme.name,
       value: q.value,
-      text: q.text,
+      text: q.text ?? '',
+      media: extractMedia(q),
       buzzerOpen: state.current.buzzerOpen,
       buzzedPlayerId: state.current.buzzedPlayerId,
-      excluded: state.current.excluded
+      excluded: state.current.excluded,
+      passed: state.current.passed,
+      buzzerTimeSec: getCurrentBuzzerTimeSec(),
+      buzzerOpensAt: state.current.buzzerOpensAt,
+      buzzerDeadline: state.current.buzzerDeadline,
+      answerDeadline: state.current.answerDeadline,
+      answerTimeExpired: state.current.answerTimeExpired
     };
     if (withAnswer) meta.answer = q.answer;
     return meta;
@@ -242,6 +412,7 @@ export function createEngine(content, savedState = null) {
     const round = currentRound();
     if (!round || round.type !== 'final') return null;
     const remainingIndex = firstRemainingFinalThemeIndex();
+    const remainingTheme = remainingIndex >= 0 ? round.themes[remainingIndex] : null;
     const view = {
       themes: round.themes.map((t, i) => ({
         name: t.name,
@@ -250,15 +421,15 @@ export function createEngine(content, savedState = null) {
       betsOpen: state.final.betsOpen,
       revealedQuestion: state.final.revealedQuestion,
       answersOpen: state.final.answersOpen,
-      remainingThemeName: remainingIndex >= 0 ? round.themes[remainingIndex].name : null,
-      question: state.final.revealedQuestion && remainingIndex >= 0 ? round.themes[remainingIndex].text : null,
+      remainingThemeName: remainingTheme?.name ?? null,
+      question: state.final.revealedQuestion && remainingTheme ? remainingTheme.text ?? '' : null,
+      media: state.final.revealedQuestion && remainingTheme ? extractMedia(remainingTheme) : null,
       betPlaced: Object.keys(state.final.bets),
       answered: Object.keys(state.final.answers)
     };
     if (withSecrets) {
-      view.answer = remainingIndex >= 0 ? round.themes[remainingIndex].answer : null;
+      view.answer = remainingTheme?.answer ?? null;
     }
-    // Reveal per-player bet/answer when the host opened answers.
     if (withSecrets || state.final.answersOpen) {
       view.reveal = state.players.map((p) => ({
         playerId: p.id,
@@ -267,7 +438,7 @@ export function createEngine(content, savedState = null) {
         answer: state.final.answers[p.id] ?? '',
         judged: p.id in state.final.judged ? state.final.judged[p.id] : null
       }));
-      if (!withSecrets) view.answer = remainingIndex >= 0 ? round.themes[remainingIndex].answer : null;
+      if (!withSecrets) view.answer = remainingTheme?.answer ?? null;
     }
     return view;
   }
@@ -276,6 +447,7 @@ export function createEngine(content, savedState = null) {
     const round = currentRound();
     return {
       phase: state.phase,
+      selectedGameId: state.selectedGameId,
       title: content.title,
       round: round ? { index: state.currentRoundIndex, name: round.name, type: round.type } : null,
       totalRounds: rounds.length,
@@ -288,18 +460,29 @@ export function createEngine(content, savedState = null) {
       })),
       board: buildBoard(),
       current: currentQuestionMeta(withSecrets),
-      final: finalView(withSecrets)
+      final: finalView(withSecrets),
+      settings: state.selectedGameId ? getSettings() : null
     };
   }
 
   return {
     getState: () => state,
+    setAvailableGames,
     addOrReconnectPlayer,
     setConnected,
     adjustScore,
+    selectGame,
+    restartGame,
+    exitToGameSelect,
+    removePlayer,
+    getSettings,
+    getCurrentBuzzerTimeSec,
     selectQuestion,
     openBuzzer,
     buzz,
+    pass,
+    buzzerTimeout,
+    answerTimeout,
     judge,
     backToBoard,
     nextRound,
@@ -312,6 +495,6 @@ export function createEngine(content, savedState = null) {
     judgeFinal,
     finish,
     publicView: () => baseView(false),
-    hostView: () => baseView(true)
+    hostView: () => ({ ...baseView(true), availableGames })
   };
 }

@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onMounted } from 'vue';
 import { useGameStore } from '../stores/game.js';
+import QuestionMedia from '../components/QuestionMedia.vue';
+import CountdownTimer from '../components/CountdownTimer.vue';
 
 const store = useGameStore();
 onMounted(() => store.connect('display'));
@@ -20,6 +22,22 @@ const buzzedName = computed(() =>
 const sortedPlayers = computed(() =>
   [...players.value].sort((a, b) => b.score - a.score)
 );
+const gameId = computed(() => view.value?.selectedGameId);
+const passLabel = computed(() => {
+  if (!current.value?.passed?.length || !['question', 'buzzed'].includes(phase.value)) return null;
+  const active = players.value.filter((p) =>
+    p.connected && !current.value.excluded.includes(p.id)
+  );
+  if (active.length === 0) return null;
+  return `Пас: ${current.value.passed.length} / ${active.length}`;
+});
+const passedPlayers = computed(() => {
+  if (!current.value?.passed?.length || !['question', 'buzzed'].includes(phase.value)) return [];
+  return current.value.passed.map((id) => ({
+    id,
+    name: playerName(id)
+  }));
+});
 </script>
 
 <template>
@@ -30,8 +48,14 @@ const sortedPlayers = computed(() =>
     </header>
 
     <main class="dmain">
+      <!-- Game selection -->
+      <div v-if="phase === 'game_select'" class="wait-big">
+        <h1>Ожидание выбора игры</h1>
+        <p class="muted">Ведущий выбирает игру…</p>
+      </div>
+
       <!-- Board -->
-      <div v-if="(phase === 'board' || phase === 'lobby') && view.board" class="board">
+      <div v-else-if="(phase === 'board' || phase === 'lobby') && view.board" class="board">
         <div v-for="(theme, ti) in view.board" :key="ti" class="col">
           <div class="theme">{{ theme.name }}</div>
           <div
@@ -46,9 +70,34 @@ const sortedPlayers = computed(() =>
       <!-- Question (no answer) -->
       <div v-else-if="phase === 'question' || phase === 'buzzed'" class="qbig">
         <div class="qmeta">{{ current?.themeName }} · {{ current?.value }}</div>
-        <div class="qtext">{{ current?.text }}</div>
+        <QuestionMedia :media="current?.media" :game-id="gameId" />
+        <div v-if="current?.text" class="qtext">{{ current?.text }}</div>
+        <div class="timers-row">
+          <CountdownTimer
+            v-if="phase === 'question' && current?.buzzerOpensAt"
+            :deadline="current.buzzerOpensAt"
+            label="До кнопок"
+          />
+          <CountdownTimer
+            v-if="phase === 'question' && current?.buzzerDeadline"
+            :deadline="current.buzzerDeadline"
+            label="На кнопку"
+          />
+          <CountdownTimer
+            v-if="phase === 'buzzed' && current?.answerDeadline"
+            :deadline="current.answerDeadline"
+            label="На ответ"
+          />
+        </div>
         <div v-if="buzzedName" class="buzz-banner">Отвечает: {{ buzzedName }}</div>
         <div v-else-if="current?.buzzerOpen" class="buzz-open">Кнопки открыты!</div>
+        <div v-else-if="phase === 'question' && current?.buzzerOpensAt" class="buzz-wait">Приготовьтесь…</div>
+        <div v-if="passLabel" class="pass-info">{{ passLabel }}</div>
+        <div v-if="passedPlayers.length" class="pass-chips">
+          <div v-for="p in passedPlayers" :key="p.id" class="chip passed">
+            {{ p.name }} — пас
+          </div>
+        </div>
       </div>
 
       <!-- Final: remove themes -->
@@ -78,7 +127,8 @@ const sortedPlayers = computed(() =>
       <!-- Final: answers -->
       <div v-else-if="phase === 'final_answers'" class="final-big">
         <div class="qmeta">Финал · {{ final.remainingThemeName }}</div>
-        <div class="qtext">{{ final.question }}</div>
+        <QuestionMedia :media="final?.media" :game-id="gameId" />
+        <div v-if="final?.question" class="qtext">{{ final.question }}</div>
         <div class="chips">
           <div v-for="p in players" :key="p.id" class="chip" :class="{ ready: final.answered.includes(p.id) }">
             {{ p.name }}<span v-if="final.answered.includes(p.id)"> ✓</span>
@@ -118,8 +168,17 @@ const sortedPlayers = computed(() =>
 
     <!-- Scoreboard -->
     <footer class="scorebar">
-      <div v-for="p in sortedPlayers" :key="p.id" class="sp" :class="{ buzz: current?.buzzedPlayerId === p.id }">
+      <div
+        v-for="p in sortedPlayers"
+        :key="p.id"
+        class="sp"
+        :class="{
+          buzz: current?.buzzedPlayerId === p.id,
+          passed: current?.passed?.includes(p.id)
+        }"
+      >
         <span class="spn">{{ p.name }}</span>
+        <span v-if="current?.passed?.includes(p.id)" class="sp-pass">пас</span>
         <span class="sps" :class="{ neg: p.score < 0 }">{{ p.score }}</span>
       </div>
     </footer>
@@ -157,6 +216,17 @@ const sortedPlayers = computed(() =>
 .qtext.accent { color: var(--green); }
 .buzz-banner { margin-top: 2rem; font-size: 2.4rem; font-weight: 800; color: var(--accent); }
 .buzz-open { margin-top: 2rem; font-size: 2rem; color: var(--green); font-weight: 700; }
+.buzz-wait { margin-top: 2rem; font-size: 1.8rem; color: var(--muted); font-weight: 600; }
+.timers-row { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-top: 1.5rem; }
+.pass-info { margin-top: 1rem; font-size: 1.6rem; color: var(--muted); }
+.pass-chips { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; margin-top: 1.2rem; }
+.chip.passed {
+  background: var(--panel);
+  border: 2px solid var(--muted);
+  color: var(--muted);
+  font-weight: 700;
+  text-decoration: line-through;
+}
 
 .final-big { text-align: center; }
 .final-big h1 { font-size: 4rem; color: var(--accent); margin: 0 0 1.5rem; }
@@ -191,10 +261,15 @@ const sortedPlayers = computed(() =>
   display: flex; flex-direction: column; align-items: center; min-width: 110px;
 }
 .sp.buzz { background: var(--accent); color: #1a1a1a; }
+.sp.passed { opacity: 0.65; border: 2px dashed var(--muted); }
 .spn { font-size: 1.1rem; font-weight: 700; }
+.sp-pass { font-size: 0.85rem; color: var(--muted); font-weight: 700; text-transform: uppercase; }
 .sps { font-size: 1.6rem; font-weight: 900; color: var(--accent); }
 .sp.buzz .sps { color: #1a1a1a; }
 .sps.neg { color: var(--red); }
 .neg { color: var(--red); }
+.wait-big { text-align: center; }
+.wait-big h1 { font-size: 3.5rem; color: var(--accent); margin: 0 0 1rem; }
+.wait-big .muted { font-size: 1.8rem; }
 .loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 1.5rem; }
 </style>

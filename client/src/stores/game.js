@@ -8,10 +8,11 @@ export const useGameStore = defineStore('game', {
     socket: null,
     role: null,
     connected: false,
-    state: null, // public view
-    hostState: null, // full view (host only)
+    state: null,
+    hostState: null,
     playerId: localStorage.getItem(STORAGE_KEY) || null,
-    joined: false
+    joined: false,
+    removed: false
   }),
 
   getters: {
@@ -40,6 +41,7 @@ export const useGameStore = defineStore('game', {
       socket.on('player:joined', ({ playerId }) => {
         this.playerId = playerId;
         this.joined = true;
+        this.removed = false;
         localStorage.setItem(STORAGE_KEY, playerId);
       });
       socket.on('player:unknown', () => {
@@ -47,15 +49,27 @@ export const useGameStore = defineStore('game', {
         this.joined = false;
         localStorage.removeItem(STORAGE_KEY);
       });
+      socket.on('player:removed', () => {
+        this.playerId = null;
+        this.joined = false;
+        this.removed = true;
+        localStorage.removeItem(STORAGE_KEY);
+      });
     },
 
-    // Player actions
-    join(name) { this.socket?.emit('player:join', { name }); },
+    join(name) {
+      this.removed = false;
+      this.socket?.emit('player:join', { name });
+    },
     buzz() { this.socket?.emit('player:buzz'); },
+    pass() { this.socket?.emit('player:pass'); },
     bet(amount) { this.socket?.emit('player:bet', { amount }); },
     answer(text) { this.socket?.emit('player:answer', { text }); },
 
-    // Host actions
+    hostSelectGame(gameId) { this.socket?.emit('host:selectGame', { gameId }); },
+    hostRestartGame() { this.socket?.emit('host:restartGame'); },
+    hostExitToGameSelect() { this.socket?.emit('host:exitToGameSelect'); },
+    hostRemovePlayer(playerId) { this.socket?.emit('host:removePlayer', { playerId }); },
     hostSelect(themeIndex, questionIndex) {
       this.socket?.emit('host:select', { themeIndex, questionIndex });
     },
