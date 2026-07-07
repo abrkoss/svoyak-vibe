@@ -1,0 +1,67 @@
+import http from 'http';
+import os from 'os';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import express from 'express';
+import { Server } from 'socket.io';
+import { createEngine } from './gameEngine.js';
+import { loadContent, loadState, saveState } from './persistence.js';
+import { registerSocketHandlers } from './socketHandlers.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, '..');
+const PORT = Number(process.env.PORT) || 3000;
+const CONTENT_PATH = path.join(ROOT, 'data', 'questions.json');
+const STATE_PATH = path.join(ROOT, 'data', 'game-state.json');
+const DIST_PATH = path.join(ROOT, 'dist');
+
+const content = loadContent(CONTENT_PATH);
+const savedState = loadState(STATE_PATH);
+const engine = createEngine(content, savedState);
+
+const app = express();
+app.use(express.static(DIST_PATH));
+// SPA fallback: any non-asset route serves index.html.
+app.get(/^(?!\/socket\.io).*/, (req, res) => {
+  res.sendFile(path.join(DIST_PATH, 'index.html'), (err) => {
+    if (err) {
+      res
+        .status(404)
+        .send('Фронтенд не собран. Выполните: npm run build');
+    }
+  });
+});
+
+const server = http.createServer(app);
+const io = new Server(server);
+
+registerSocketHandlers(io, engine, () => saveState(STATE_PATH, engine.getState()));
+
+function lanUrls() {
+  const urls = [];
+  try {
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        if (net.family === 'IPv4' && !net.internal) {
+          urls.push(`http://${net.address}:${PORT}`);
+        }
+      }
+    }
+  } catch {
+    // Some environments block reading network interfaces; fall back to localhost.
+  }
+  if (urls.length === 0) urls.push(`http://localhost:${PORT}`);
+  return urls;
+}
+
+server.listen(PORT, '0.0.0.0', () => {
+  const urls = lanUrls();
+  console.log('\nСвоя игра запущена!');
+  console.log('Откройте на устройствах в одной WiFi-сети:\n');
+  for (const url of urls) {
+    console.log(`  Экран-показ:  ${url}/display`);
+    console.log(`  Ведущий:      ${url}/host`);
+    console.log(`  Игроки:       ${url}/player\n`);
+  }
+});
