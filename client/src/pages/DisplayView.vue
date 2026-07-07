@@ -22,6 +22,16 @@ const buzzedName = computed(() =>
 const sortedPlayers = computed(() =>
   [...players.value].sort((a, b) => b.score - a.score)
 );
+const assingEmojis = (element) => {
+  const topPlayer = sortedPlayers.value[0];
+  const worstPlayer = sortedPlayers.value[sortedPlayers.value.length - 1];
+  if (element.id === topPlayer.id) {
+    return '👑';
+  } else if (element.id === worstPlayer.id) {
+    return '🤡';
+  }
+  return '';
+};
 const gameId = computed(() => view.value?.selectedGameId);
 const passLabel = computed(() => {
   if (!current.value?.passed?.length || !['question', 'buzzed'].includes(phase.value)) return null;
@@ -63,7 +73,7 @@ const passedPlayers = computed(() => {
             :key="qi"
             class="cell"
             :class="{ done: q.answered }"
-          >{{ q.answered ? '' : q.value }}</div>
+          >{{ q.value }}</div>
         </div>
       </div>
 
@@ -169,7 +179,7 @@ const passedPlayers = computed(() => {
     <!-- Scoreboard -->
     <footer class="scorebar">
       <div
-        v-for="p in sortedPlayers"
+        v-for="(p, i) in sortedPlayers"
         :key="p.id"
         class="sp"
         :class="{
@@ -177,6 +187,7 @@ const passedPlayers = computed(() => {
           passed: current?.passed?.includes(p.id)
         }"
       >
+        <span v-if="i === 0 || i === sortedPlayers.length - 1" class="spi">{{ assingEmojis(p) }}</span>
         <span class="spn">{{ p.name }}</span>
         <span v-if="current?.passed?.includes(p.id)" class="sp-pass">пас</span>
         <span class="sps" :class="{ neg: p.score < 0 }">{{ p.score }}</span>
@@ -208,7 +219,7 @@ const passedPlayers = computed(() => {
   font-size: 2.6rem; font-weight: 900; padding: 1.4rem; border-radius: 10px;
   text-align: center;
 }
-.cell.done { background: var(--panel); color: var(--panel); }
+.cell.done { background: var(--panel); color: var(--panel-2); }
 
 .qbig { text-align: center; max-width: 1200px; }
 .qmeta { font-size: 1.6rem; color: var(--accent); font-weight: 700; margin-bottom: 1.5rem; }
@@ -257,6 +268,7 @@ const passedPlayers = computed(() => {
   border-top: 2px solid var(--border); overflow-x: auto;
 }
 .sp {
+  position: relative;
   background: var(--panel-2); border-radius: 10px; padding: 0.6rem 1.2rem;
   display: flex; flex-direction: column; align-items: center; min-width: 110px;
 }
@@ -267,6 +279,7 @@ const passedPlayers = computed(() => {
 .sps { font-size: 1.6rem; font-weight: 900; color: var(--accent); }
 .sp.buzz .sps { color: #1a1a1a; }
 .sps.neg { color: var(--red); }
+.spi {position: absolute; font-size: 1.5rem; top: -12px; right: -5px; transform: rotate(18deg);}
 .neg { color: var(--red); }
 .wait-big { text-align: center; }
 .wait-big h1 { font-size: 3.5rem; color: var(--accent); margin: 0 0 1rem; }

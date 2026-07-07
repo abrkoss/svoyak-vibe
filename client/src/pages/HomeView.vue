@@ -19,6 +19,11 @@
         <span class="role-desc">Кнопка ответа</span>
       </router-link>
     </div>
+    <div class="connect">
+      <img class="connect__img" src="../assets/connectImg.png" alt="QR for connection" />
+      <span class="connect__text">QR<br>или<br>ссылка для подключения<br>игрока</span>
+      <span class="connect__link">http://192.168.1.114:3000/player</span>
+    </div>
   </div>
 </template>
 
@@ -58,4 +63,9 @@ h1 { font-size: 3rem; margin: 0; color: var(--accent); }
 .role-icon { font-size: 3rem; }
 .role-name { font-size: 1.4rem; font-weight: 700; }
 .role-desc { color: var(--muted); font-size: 0.9rem; }
+
+.connect {display: flex; align-items: center; justify-content: center; gap: 1.5rem }
+.connect__img { max-width: 500px; margin-top: 1.5rem; border-radius: 16px; }
+.connect__text { font-size: 1.4rem; font-weight: 800; color: var(--muted); text-align: center; }
+.connect__link { font-size: 2rem; font-weight: 800; color: var(--accent); }
 </style>
