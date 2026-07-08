@@ -35,6 +35,23 @@ const engine = createEngine(initialContent, savedState, catalog);
 const app = express();
 app.use('/games', express.static(GAMES_DIR));
 app.use(express.static(DIST_PATH));
+app.get('/api/connection', async (req, res) => {
+  try {
+    const urls = lanUrls();
+    const baseUrl = urls[0];
+
+    res.json({
+      baseUrl,
+      playerUrl: `${baseUrl}/player`,
+      hostUrl: `${baseUrl}/host`,
+      displayUrl: `${baseUrl}/display`,
+      allUrls: urls
+    });
+  } catch (error) {
+    console.error("Ошибка при получении IP:", error);
+    res.status(500).json({ error: "Не удалось получить IP-адрес" });
+  }
+});
 app.get(/^(?!\/socket\.io).*/, (req, res) => {
   res.sendFile(path.join(DIST_PATH, 'index.html'), (err) => {
     if (err) {
