@@ -82,6 +82,10 @@ function submitAnswer() {
         <p class="muted big">Ведущий выбирает игру…</p>
       </div>
 
+      <div v-else-if="phase === 'answer_reveal'" class="center">
+        <p class="muted big">Смотрите правильный ответ на экране</p>
+      </div>
+
       <div v-else-if="['lobby','board','question','buzzed','answered'].includes(phase)" class="center">
         <template v-if="phase === 'lobby' || phase === 'board'">
           <p class="muted big">Ждём выбора вопроса ведущим…</p>

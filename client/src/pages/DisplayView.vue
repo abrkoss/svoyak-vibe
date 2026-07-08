@@ -48,6 +48,19 @@ const passedPlayers = computed(() => {
     name: playerName(id)
   }));
 });
+const revealSubtitle = computed(() => {
+  if (phase.value !== 'answer_reveal') return null;
+  switch (current.value?.closeReason) {
+    case 'correct':
+      return buzzedName.value ? `Верно: ${buzzedName.value}` : 'Верно!';
+    case 'all_passed':
+      return 'Все пасуют';
+    case 'buzzer_timeout':
+      return 'Никто не ответил';
+    default:
+      return null;
+  }
+});
 </script>
 
 <template>
@@ -108,6 +121,15 @@ const passedPlayers = computed(() => {
             {{ p.name }} — пас
           </div>
         </div>
+      </div>
+
+      <!-- Answer reveal (public) -->
+      <div v-else-if="phase === 'answer_reveal'" class="qbig reveal">
+        <div class="qmeta">{{ current?.themeName }} · {{ current?.value }}</div>
+        <div class="reveal-label">Правильный ответ</div>
+        <div class="qtext accent">{{ current?.answer }}</div>
+        <QuestionMedia :media="current?.answerMedia" :game-id="gameId" />
+        <div v-if="revealSubtitle" class="buzz-banner muted-banner">{{ revealSubtitle }}</div>
       </div>
 
       <!-- Final: remove themes -->
@@ -225,6 +247,9 @@ const passedPlayers = computed(() => {
 .qmeta { font-size: 1.6rem; color: var(--accent); font-weight: 700; margin-bottom: 1.5rem; }
 .qtext { font-size: 3.4rem; line-height: 1.3; font-weight: 700; }
 .qtext.accent { color: var(--green); }
+.reveal-label { font-size: 2rem; color: var(--muted); margin-bottom: 1rem; }
+.reveal .qtext { margin-bottom: 1.5rem; }
+.muted-banner { color: var(--muted); font-size: 1.8rem; }
 .buzz-banner { margin-top: 2rem; font-size: 2.4rem; font-weight: 800; color: var(--accent); }
 .buzz-open { margin-top: 2rem; font-size: 2rem; color: var(--green); font-weight: 700; }
 .buzz-wait { margin-top: 2rem; font-size: 1.8rem; color: var(--muted); font-weight: 600; }

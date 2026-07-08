@@ -62,7 +62,7 @@ export function registerSocketHandlers(io, engine, { gamesDir, persist }) {
       const id = socket.data.playerId;
       if (!id) return;
       if (!engine.pass(id)) return;
-      if (engine.getState().phase === 'board') {
+      if (engine.getState().phase === 'answer_reveal') {
         timers.onQuestionEnded();
       }
       broadcast();
@@ -131,9 +131,10 @@ export function registerSocketHandlers(io, engine, { gamesDir, persist }) {
       if (role !== 'host') return;
       const wasBuzzed = engine.getState().phase === 'buzzed';
       engine.judge(payload?.correct);
-      if (wasBuzzed && engine.getState().phase === 'question') {
+      const phase = engine.getState().phase;
+      if (wasBuzzed && phase === 'question') {
         timers.onWrongAnswer();
-      } else {
+      } else if (payload?.correct) {
         timers.onQuestionEnded();
       }
       broadcast();

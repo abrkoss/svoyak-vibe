@@ -29,6 +29,20 @@ const allJudged = computed(() =>
   final.value?.reveal?.every((r) => r.judged !== null)
 );
 
+const revealSubtitle = computed(() => {
+  if (phase.value !== 'answer_reveal') return null;
+  switch (current.value?.closeReason) {
+    case 'correct':
+      return buzzedName.value ? `Верно: ${buzzedName.value}` : 'Верно!';
+    case 'all_passed':
+      return 'Все пасуют';
+    case 'buzzer_timeout':
+      return 'Никто не ответил';
+    default:
+      return null;
+  }
+});
+
 function confirmRestart() {
   if (phase.value === 'lobby' || window.confirm('Перезапустить игру? Счёт и прогресс будут сброшены.')) {
     store.hostRestartGame();
@@ -135,6 +149,19 @@ function confirmExit() {
             </template>
 
             <button @click="store.hostBackToBoard()">К табло (закрыть вопрос)</button>
+          </div>
+        </div>
+
+        <!-- Answer reveal -->
+        <div v-else-if="phase === 'answer_reveal'" class="question-view">
+          <div class="qmeta">{{ current?.themeName }} — {{ current?.value }}</div>
+          <div v-if="revealSubtitle" class="buzzed">{{ revealSubtitle }}</div>
+          <div class="reveal-label">Правильный ответ</div>
+          <div class="qtext answer-text">{{ current?.answer }}</div>
+          <QuestionMedia :media="current?.answerMedia" :game-id="gameId" />
+
+          <div class="qcontrols">
+            <button class="primary" @click="store.hostBackToBoard()">К табло</button>
           </div>
         </div>
 
@@ -285,6 +312,8 @@ function confirmExit() {
 .qmeta { color: var(--accent); font-weight: 700; font-size: 1.1rem; }
 .qtext { font-size: 1.8rem; line-height: 1.4; }
 .answer { font-size: 1.2rem; color: var(--green); }
+.reveal-label { font-size: 1.1rem; color: var(--muted); font-weight: 600; }
+.answer-text { font-size: 1.8rem; color: var(--green); font-weight: 700; }
 .buzzed { font-size: 1.4rem; background: var(--panel-2); padding: 0.8rem; border-radius: 10px; }
 .timers-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .expired-warning {

@@ -19,7 +19,8 @@
               "text": "Кто этот космонавт?",
               "answer": "Юрий Гагарин",
               "buzzerTimeSec": 15,
-              "media": { "image": "media/gagarina.jpg" }
+              "media": { "image": "media/gagarina.jpg" },
+              "answerMedia": { "image": "media/gagarin-answer.jpg" }
             },
             { "value": 300, "text": "В каком городе находится Колизей?", "answer": "Рим" },
             { "value": 400, "text": "Какая стена считается самой длинной в мире?", "answer": "Великая Китайская стена" },

@@ -19,10 +19,20 @@
               "text": "Кто этот космонавт?",
               "answer": "Юрий Гагарин",
               "buzzerTimeSec": 15,
-              "media": { "image": "media/gagarina.jpg" }
+              "media": { "image": "media/gagarin.png" }
             },
-            { "value": 300, "text": "В каком городе находится Колизей?", "answer": "Рим" },
-            { "value": 400, "text": "Какая стена считается самой длинной в мире?", "answer": "Великая Китайская стена" },
+            {
+              "value": 300,
+              "text": "В каком городе находится Колизей?",
+              "answer": "Рим",
+              "media": { "audio": "media/mia-boyka-jeksponat.mp3" }
+            },
+            {
+              "value": 400,
+              "text": "Какая стена считается самой длинной в мире?",
+              "answer": "Великая Китайская стена",
+              "media": { "video": "media/video.mp4" }
+            },
             { "value": 500, "text": "В каком веке произошла Французская революция?", "answer": "В XVIII веке (1789)" }
           ]
         },

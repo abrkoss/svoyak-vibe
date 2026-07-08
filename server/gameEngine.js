@@ -28,6 +28,15 @@ function extractMedia(source) {
   return Object.keys(media).length ? media : null;
 }
 
+function extractAnswerMedia(source) {
+  if (!source?.answerMedia) return null;
+  const media = {};
+  if (source.answerMedia.image) media.image = source.answerMedia.image;
+  if (source.answerMedia.audio) media.audio = source.answerMedia.audio;
+  if (source.answerMedia.video) media.video = source.answerMedia.video;
+  return Object.keys(media).length ? media : null;
+}
+
 const DEFAULT_SETTINGS = {
   buzzerDelaySec: 1,
   buzzerTimeSec: 30,
@@ -174,6 +183,9 @@ export function createEngine(initialContent, savedState = null, initialGames = [
       buzzerDeadline: null,
       answerDeadline: null,
       answerTimeExpired: false,
+      answerRevealed: false,
+      correctJudged: false,
+      closeReason: null,
       passed: []
     };
   }
@@ -229,7 +241,7 @@ export function createEngine(initialContent, savedState = null, initialGames = [
     state.current.passed.push(playerId);
 
     if (!canStillBuzzOrPass()) {
-      consumeQuestion();
+      revealAnswer('all_passed');
     }
     return true;
   }
@@ -252,7 +264,7 @@ export function createEngine(initialContent, savedState = null, initialGames = [
 
   function buzzerTimeout() {
     if (state.phase !== 'question' || !state.current || !state.current.buzzerOpen) return false;
-    consumeQuestion();
+    revealAnswer('buzzer_timeout');
     return true;
   }
 
@@ -260,6 +272,16 @@ export function createEngine(initialContent, savedState = null, initialGames = [
     if (state.phase !== 'buzzed' || !state.current || state.current.answerTimeExpired) return false;
     state.current.answerTimeExpired = true;
     return true;
+  }
+
+  function revealAnswer(reason) {
+    if (!state.current) return;
+    state.phase = 'answer_reveal';
+    state.current.answerRevealed = true;
+    state.current.closeReason = reason;
+    state.current.answerDeadline = null;
+    state.current.buzzerDeadline = null;
+    state.current.buzzerOpen = false;
   }
 
   function currentValue() {
@@ -275,13 +297,17 @@ export function createEngine(initialContent, savedState = null, initialGames = [
     const value = currentValue();
     if (correct) {
       adjustScore(playerId, value);
-      consumeQuestion();
+      state.current.correctJudged = true;
+      revealAnswer('correct');
     } else {
       adjustScore(playerId, -value);
       state.current.excluded.push(playerId);
       state.current.buzzedPlayerId = null;
       state.current.answerDeadline = null;
       state.current.answerTimeExpired = false;
+      state.current.answerRevealed = false;
+      state.current.correctJudged = false;
+      state.current.closeReason = null;
       state.phase = 'question';
       openBuzzer();
     }
@@ -402,9 +428,15 @@ export function createEngine(initialContent, savedState = null, initialGames = [
       buzzerOpensAt: state.current.buzzerOpensAt,
       buzzerDeadline: state.current.buzzerDeadline,
       answerDeadline: state.current.answerDeadline,
-      answerTimeExpired: state.current.answerTimeExpired
+      answerTimeExpired: state.current.answerTimeExpired,
+      answerRevealed: state.current.answerRevealed,
+      correctJudged: state.current.correctJudged,
+      closeReason: state.current.closeReason
     };
-    if (withAnswer) meta.answer = q.answer;
+    if (withAnswer || state.phase === 'answer_reveal') {
+      meta.answer = q.answer;
+      meta.answerMedia = extractAnswerMedia(q);
+    }
     return meta;
   }
 
